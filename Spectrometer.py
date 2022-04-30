@@ -1,15 +1,45 @@
 import KrakenOS as Kos
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.optimize import newton
 
-# Ritchey params
+# Optics params
 
-D = 400
+D = 200
 D1 = 300
 D1_in = D1*0.3
 D2 = D1*0.3
 B = D*1.2
-F = 5*D
+F = 5*D1
+F2 = 65
+angle = 30
+
+def beta_finder_der2(b, W, D, alpha):
+    return W/D * W * ( (np.sin(b)/(-np.sin(b - np.pi/3) - np.sin(b)) -
+                        np.cos(b)*(-np.cos(b - np.pi/3) - np.cos(b))/(-np.sin(b - np.pi/3) - np.sin(b))**2))
+
+def beta_finder2(b, W, R, D, alpha):
+    return W / D * (W * np.cos(b) / (np.sin(np.pi / 3 - b) - np.sin(b))) - W / R
+
+def beta_finder_der(b, W, D, alpha):
+    return W/D * W * (np.cos(b)**2 / (np.sin(alpha) - np.sin(b))**2 - np.sin(b)/(np.sin(alpha) - np.sin(b)))
+
+def beta_finder(b, W, R, D, alpha):
+    return W/D * (W*np.cos(b)/(np.sin(alpha) - np.sin(b))) - W/R
+
+def grating(W, R, D, alpha, order = 3, start = 0.1):
+    a = np.radians(alpha)
+    b = newton(lambda x: beta_finder(x, W, R, D, a), start, lambda x: beta_finder_der(x, W, D, a))%(np.pi*2)
+    d = W*order/(np.sin(a) - np.sin(b))
+    dbdl = (np.sin(a) - np.sin(b))/(W*np.cos(b))
+    return np.degrees(b), d, dbdl
+
+def grating2(W, R, D, alpha, order = 3, start = 0.1):
+    a = np.radians(alpha)
+    b = newton(lambda x: beta_finder2(x, W, R, D, a), start, lambda x: beta_finder_der2(x, W, D, a))%(np.pi*2)
+    d = W*order/(np.sin(a) - np.sin(b))
+    dbdl = (np.sin(a) - np.sin(b))/(W*np.cos(b))
+    return np.degrees(b), d, dbdl
 
 def Ritchey(D,B,F):
     M = (F-B)/D
@@ -22,13 +52,25 @@ def Ritchey(D,B,F):
 def Hyperbola(F, R):
     return -(F/R - 1)**2
 
+def Parabola(F):
+    return -F*2
+
+def thick_lens_finder_der(R, d, n):
+    return (n-1)*(-2/R**2 - 2*(n-1)*d/(n*R**3))
+
+def thick_lens_finder(R, d, f, n):
+    return (n-1)*(2/R + (n-1)*d/(n*R**2)) - 1/f
+
+
+def Spherical_lens(f, d, n):
+    return newton(lambda x: thick_lens_finder(x, d, f, n), 1, lambda x: thick_lens_finder_der(x, d, n))
+
 R1, R2, K1, K2 = Ritchey(D, B, F)
+
 # ______________________________________#
 
 P_Obj = Kos.surf()
 P_Obj.Rc = 0.0
-# P_Obj.Thickness = 200.0
-# P_Obj.Diameter = 100
 P_Obj.Glass = "AIR"
 P_Obj.Thickness = D*2
 P_Obj.Diameter = D1
@@ -36,11 +78,6 @@ P_Obj.Diameter = D1
 # ______________________________________#
 
 M1 = Kos.surf()
-# M1.Rc = -269.8364227993029
-# M1.Thickness = -100.0
-# M1.k = -1.056604646839576
-# M1.Diameter = 100
-# M1.InDiameter = 30.0
 M1.Rc = R1
 M1.k = K1
 M1.Thickness = -D
@@ -51,53 +88,20 @@ M1.Glass = "MIRROR"
 # ______________________________________#
 
 M2 = Kos.surf()
-# M2.Rc = -97.90599864690856
-# M2.Thickness = 97.0
-# M2.k = -3.803238575153494
-# M2.Diameter = 30.0
 M2.Rc = R2
 M2.Thickness = B
 M2.k = K2
 M2.Diameter = D2
 M2.Glass = "MIRROR"
-M2.AxisMove = 0.0
-
-# # ______________________________________#
-#
-# L1a = Kos.surf()
-# L1a.Rc = 45.27999130048428
-# L1a.Thickness = 5.0
-# L1a.Glass = "CAF2SCHOTT"
-# L1a.Diameter = 16.0
-#
-# L1b = Kos.surf()
-# L1b.Rc = -122.7256512429732
-# L1b.Thickness = 112.3 - 97 - 5.0
-# L1b.Glass = "AIR"
-# L1b.Diameter = 16.0
-#
-# # ______________________________________#
-#
-# L2a = Kos.surf()
-# L2a.Rc = -30.54229218826073
-# L2a.Thickness = 5.5
-# L2a.Glass = "CAF2SCHOTT"
-# L2a.Diameter = 12.0
-#
-# L2b = Kos.surf()
-# L2b.Rc = 48.11681314249844
-# L2b.Thickness = 120 - 112.3 - 5.5 + 1.4
-# L2b.Glass = "AIR"
-# L2b.Diameter = 12.0
 
 # ______________________________________#
 
 P_Ima = Kos.surf()
-P_Ima.Diameter = 20.0
+P_Ima.Diameter = 200
 P_Ima.Glass = "AIR"
 P_Ima.Name = "Plano imagen"
-# A = [P_Obj, M1, M2, L1a, L1b, L2a, L2b, P_Ima]
 A = [P_Obj, M1, M2, P_Ima]
+
 # ______________________________________#
 
 config = Kos.Setup()
@@ -131,21 +135,51 @@ for i in range(0, len(xa)):
 X, Y, Z, L, M, N = Rays.pick(-1)
 
 # ______________________________________#
-margin = 10
+
 focus = False
 while not focus:
 
     # ______________________________________#
 
     v = Kos.BestFocus(X, Y, Z, L, M, N)
-    # L2b.Thickness += v
-    M2.Thickness += v
+    M2.Thickness += v+F2
     print(f"Image plane shift: {v} [mm]")
 
     # ______________________________________#
 
-    # A = [P_Obj, M1, M2, L1a, L1b, L2a, L2b, P_Ima]
-    A = [P_Obj, M1, M2, P_Ima]
+    M3 = Kos.surf()
+    M3.Rc = Parabola(F2)
+    M3.Thickness = -100
+    M3.k = -1
+    M3.Diameter = 50
+    M3.Glass = "MIRROR"
+    M3.TiltX = angle
+    M3.AxisMove = 2.0
+
+    # ______________________________________#
+
+    b, d, dbdl = grating2(W, 2557, 40E3, 51.40292275686964, order=3, start=0.1)
+
+    Dif_Obj = Kos.surf()
+    Dif_Obj.Rc = 0.0
+    Dif_Obj.Thickness = 70
+    Dif_Obj.Glass = "MIRROR"
+    Dif_Obj.Diameter = 50
+    Dif_Obj.Grating_D = d
+    Dif_Obj.Diff_Ord = 3
+    Dif_Obj.TiltX = -(60-b)
+    Dif_Obj.AxisMove = 1.0
+    Dif_Obj.Surface_type = 1
+    Dif_Obj.Grating_Angle = 180
+
+    # ______________________________________#
+
+    P_Ima.TiltX = -b
+    P_Ima.DespY = np.sin(np.radians(b))*Dif_Obj.Thickness
+
+    # ______________________________________#
+
+    A = [P_Obj, M1, M2, M3, Dif_Obj, P_Ima]
     Telescope = Kos.system(A, config)
     Rays = Kos.raykeeper(Telescope)
 
@@ -155,7 +189,7 @@ while not focus:
     sup = 1
     AperType = "STOP"
     Pup = Kos.PupilCalc(Telescope, sup, W, AperType)
-    Pup.Samp = 7
+    Pup.Samp = 4
     Pup.FieldType = "angle"
 
     # ______________________________________#
@@ -172,6 +206,16 @@ while not focus:
         dCos = [La[i], Ma[i], Na[i]]
         Telescope.Trace(pSource_0, dCos, W)
         Rays.push()
+        Telescope.Trace(pSource_0, dCos, W-.1)
+        Rays.push()
+        Telescope.Trace(pSource_0, dCos, W+.1)
+        Rays.push()
+        Telescope.Trace(pSource_0, dCos, 0.45)
+        Rays.push()
+        Telescope.Trace(pSource_0, dCos, 0.5)
+        Rays.push()
+        Telescope.Trace(pSource_0, dCos, 0.7)
+        Rays.push()
 
     # ______________________________________#
 
@@ -182,6 +226,7 @@ X, Y, Z, L, M, N = Rays.pick(-1)
 
 # ______________________________________#
 
+Kos.display2d(Telescope, Rays, 0)
 Kos.display3d(Telescope, Rays, 2)
 
 # ______________________________________#
@@ -203,7 +248,7 @@ for i in range(0, NC):
 fig = plt.figure()
 
 ax1 = plt.subplot2grid((1,2),(0,0), rowspan=1, colspan=1)
-ax1.scatter(X, Y, marker = 'x')
+ax1.scatter(X-np.mean(X), Y-np.mean(Y), marker = 'x')
 ax1.set_xlabel('x')
 ax1.set_ylabel('y')
 ax1.set_title('Spot Diagram')
